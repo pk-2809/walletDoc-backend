@@ -11,12 +11,24 @@ export const initializeFirebase = (): void => {
   }
 
   try {
-    // Option 1: Use service account file
-    const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-    
-    if (serviceAccountPath && fs.existsSync(serviceAccountPath)) {
-      const serviceAccount = require(path.resolve(serviceAccountPath));
-      // Use custom bucket name from env, or try both common formats
+    // Option 1: Use service account from base64 encoded string (Railway/Cloud)
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
+      const serviceAccountJson = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf-8');
+      const serviceAccount = JSON.parse(serviceAccountJson);
+      const storageBucket = process.env.FIREBASE_STORAGE_BUCKET 
+        || `${serviceAccount.project_id}.firebasestorage.app`
+        || `${serviceAccount.project_id}.appspot.com`;
+      
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        storageBucket: storageBucket
+      });
+      console.log('✅ Firebase initialized with base64 service account');
+      console.log(`📦 Storage bucket: ${storageBucket}`);
+    }
+    // Option 2: Use service account file (local development)
+    else if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH && fs.existsSync(process.env.FIREBASE_SERVICE_ACCOUNT_PATH)) {
+      const serviceAccount = require(path.resolve(process.env.FIREBASE_SERVICE_ACCOUNT_PATH));
       const storageBucket = process.env.FIREBASE_STORAGE_BUCKET 
         || `${serviceAccount.project_id}.firebasestorage.app`
         || `${serviceAccount.project_id}.appspot.com`;
@@ -28,7 +40,7 @@ export const initializeFirebase = (): void => {
       console.log('✅ Firebase initialized with service account file');
       console.log(`📦 Storage bucket: ${storageBucket}`);
     } 
-    // Option 2: Use individual credentials from environment variables
+    // Option 3: Use individual credentials from environment variables
     else if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
       const storageBucket = process.env.FIREBASE_STORAGE_BUCKET 
         || `${process.env.FIREBASE_PROJECT_ID}.firebasestorage.app`
@@ -45,7 +57,7 @@ export const initializeFirebase = (): void => {
       console.log('✅ Firebase initialized with environment variables');
       console.log(`📦 Storage bucket: ${storageBucket}`);
     }
-    // Option 3: Use default credentials (for Google Cloud environments)
+    // Option 4: Use default credentials (for Google Cloud environments)
     else {
       admin.initializeApp({
         credential: admin.credential.applicationDefault()

@@ -62,9 +62,37 @@ app.use((err: Error, _req: Request, res: Response, _next: Function) => {
 });
 
 // Start server - listen on all network interfaces
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server is running on http://localhost:${PORT}`);
-  console.log(`🌐 Server accessible from network: http://192.168.29.19:${PORT}`);
-  console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
+const server = app.listen(PORT, '0.0.0.0', () => {
+  const env = process.env.NODE_ENV || 'development';
+  const protocol = env === 'production' ? 'https' : 'http';
+  const host = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.HOST || 'localhost';
+  
+  if (env === 'production') {
+    console.log(`✅ Server is running in production mode`);
+    console.log(`🌐 API URL: ${protocol}://${host}`);
+    console.log(`📦 Port: ${PORT}`);
+  } else {
+    console.log(`🚀 Server is running in development mode`);
+    console.log(`📍 Local: http://localhost:${PORT}`);
+    console.log(`🌐 Network: http://0.0.0.0:${PORT}`);
+  }
+  console.log(`📝 Environment: ${env}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
 });
 
