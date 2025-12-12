@@ -8,4 +8,6 @@ dist/
 *.swp
 *.swo
 firebase-service-account.json
+service-account-base64.txt
+.railway
 
