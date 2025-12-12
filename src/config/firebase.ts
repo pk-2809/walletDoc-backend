@@ -13,18 +13,26 @@ export const initializeFirebase = (): void => {
   try {
     // Option 1: Use service account from base64 encoded string (Railway/Cloud)
     if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
-      const serviceAccountJson = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf-8');
-      const serviceAccount = JSON.parse(serviceAccountJson);
-      const storageBucket = process.env.FIREBASE_STORAGE_BUCKET 
-        || `${serviceAccount.project_id}.firebasestorage.app`
-        || `${serviceAccount.project_id}.appspot.com`;
-      
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        storageBucket: storageBucket
-      });
-      console.log('✅ Firebase initialized with base64 service account');
-      console.log(`📦 Storage bucket: ${storageBucket}`);
+      try {
+        console.log('🔍 Found FIREBASE_SERVICE_ACCOUNT_BASE64, parsing...');
+        const serviceAccountJson = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf-8');
+        const serviceAccount = JSON.parse(serviceAccountJson);
+        const storageBucket = process.env.FIREBASE_STORAGE_BUCKET 
+          || `${serviceAccount.project_id}.firebasestorage.app`
+          || `${serviceAccount.project_id}.appspot.com`;
+        
+        admin.initializeApp({
+          credential: admin.credential.cert(serviceAccount),
+          storageBucket: storageBucket
+        });
+        console.log('✅ Firebase initialized with base64 service account');
+        console.log(`📦 Storage bucket: ${storageBucket}`);
+        firebaseInitialized = true;
+        return;
+      } catch (base64Error) {
+        console.error('❌ Error parsing base64 service account:', base64Error);
+        throw new Error('Failed to parse FIREBASE_SERVICE_ACCOUNT_BASE64. Please check the environment variable.');
+      }
     }
     // Option 2: Use service account file (local development)
     else if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH && fs.existsSync(process.env.FIREBASE_SERVICE_ACCOUNT_PATH)) {
@@ -59,10 +67,13 @@ export const initializeFirebase = (): void => {
     }
     // Option 4: Use default credentials (for Google Cloud environments)
     else {
-      admin.initializeApp({
-        credential: admin.credential.applicationDefault()
-      });
-      console.log('✅ Firebase initialized with default credentials');
+      // Don't use default credentials - require explicit configuration
+      throw new Error(
+        'Firebase not configured. Please set one of:\n' +
+        '  - FIREBASE_SERVICE_ACCOUNT_BASE64 (base64 encoded service account)\n' +
+        '  - FIREBASE_SERVICE_ACCOUNT_PATH (path to service account file)\n' +
+        '  - FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, FIREBASE_CLIENT_EMAIL (individual credentials)'
+      );
     }
 
     firebaseInitialized = true;
