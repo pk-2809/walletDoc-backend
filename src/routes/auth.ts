@@ -675,5 +675,170 @@ router.post('/update-profile-picture', authenticateToken, profilePictureUpload.s
   }
 });
 
+// Get profile picture as base64 (to avoid CORS issues)
+router.get('/profile-picture-base64', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+
+    const userId = req.user.uid;
+    const db = admin.firestore();
+    const userDoc = await db.collection('users').doc(userId).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const userData = userDoc.data();
+    const profilePicturePath = userData?.profilePicturePath;
+
+    if (!profilePicturePath) {
+      return res.status(404).json({
+        success: false,
+        message: 'Profile picture not found'
+      });
+    }
+
+    // Get file from Firebase Storage
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+    const bucket = bucketName 
+      ? admin.storage().bucket(bucketName)
+      : admin.storage().bucket();
+    
+    if (!bucket) {
+      return res.status(500).json({
+        success: false,
+        message: 'Firebase Storage bucket not configured'
+      });
+    }
+
+    const file = bucket.file(profilePicturePath);
+    const [exists] = await file.exists();
+
+    if (!exists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Profile picture file not found in storage'
+      });
+    }
+
+    // Download file as buffer
+    const [fileBuffer] = await file.download();
+    
+    // Get file metadata for content type
+    const [metadata] = await file.getMetadata();
+    const contentType = metadata.contentType || 'image/jpeg';
+
+    // Convert buffer to base64
+    const base64String = fileBuffer.toString('base64');
+    const base64DataUrl = `data:${contentType};base64,${base64String}`;
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        base64: base64DataUrl,
+        contentType: contentType,
+        size: fileBuffer.length
+      }
+    });
+  } catch (error: any) {
+    console.error('Error getting profile picture as base64:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to get profile picture'
+    });
+  }
+});
+
+// Get profile picture as base64 by userId (open API - for QR scanning)
+router.get('/profile-picture-base64/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required'
+      });
+    }
+
+    const db = admin.firestore();
+    const userDoc = await db.collection('users').doc(userId).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const userData = userDoc.data();
+    const profilePicturePath = userData?.profilePicturePath;
+
+    if (!profilePicturePath) {
+      return res.status(404).json({
+        success: false,
+        message: 'Profile picture not found'
+      });
+    }
+
+    // Get file from Firebase Storage
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+    const bucket = bucketName 
+      ? admin.storage().bucket(bucketName)
+      : admin.storage().bucket();
+    
+    if (!bucket) {
+      return res.status(500).json({
+        success: false,
+        message: 'Firebase Storage bucket not configured'
+      });
+    }
+
+    const file = bucket.file(profilePicturePath);
+    const [exists] = await file.exists();
+
+    if (!exists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Profile picture file not found in storage'
+      });
+    }
+
+    // Download file as buffer
+    const [fileBuffer] = await file.download();
+    
+    // Get file metadata for content type
+    const [metadata] = await file.getMetadata();
+    const contentType = metadata.contentType || 'image/jpeg';
+
+    // Convert buffer to base64
+    const base64String = fileBuffer.toString('base64');
+    const base64DataUrl = `data:${contentType};base64,${base64String}`;
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        base64: base64DataUrl,
+        contentType: contentType,
+        size: fileBuffer.length
+      }
+    });
+  } catch (error: any) {
+    console.error('Error getting profile picture as base64:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to get profile picture'
+    });
+  }
+});
+
 export default router;
 
