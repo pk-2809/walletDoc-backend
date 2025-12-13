@@ -3,6 +3,9 @@ import multer from 'multer';
 import { admin } from '../config/firebase';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 
+// Maximum storage quota per user (50MB)
+const MAX_STORAGE_SIZE = 50 * 1024 * 1024; // 50MB in bytes
+
 // Configure multer for profile picture uploads
 const profilePictureUpload = multer({
   storage: multer.memoryStorage(),
@@ -540,6 +543,61 @@ router.post('/update-profile-picture', authenticateToken, profilePictureUpload.s
     const userId = req.user.uid;
     const file = req.file;
 
+    // Check storage quota before upload
+    const db = admin.firestore();
+    const userRef = db.collection('users').doc(userId);
+    const userDoc = await userRef.get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+    const currentTotalSize = (userData && userData.totalSize) ? userData.totalSize : 0;
+    
+    // Get old profile picture size if exists
+    let oldProfilePictureSize = 0;
+    if (userData && userData.profilePicturePath) {
+      try {
+        const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+        const bucket = bucketName 
+          ? admin.storage().bucket(bucketName)
+          : admin.storage().bucket();
+        const oldFile = bucket.file(userData.profilePicturePath as string);
+        const [exists] = await oldFile.exists();
+        if (exists) {
+          const [metadata] = await oldFile.getMetadata();
+          oldProfilePictureSize = parseInt(String(metadata.size || '0'), 10);
+        }
+      } catch (error) {
+        // If old file doesn't exist or can't be accessed, ignore
+        console.log('Could not get old profile picture size:', error);
+      }
+    }
+
+    // Calculate new total size (subtract old profile picture, add new one)
+    const newTotalSize = currentTotalSize - oldProfilePictureSize + file.size;
+
+    // Check if upload would exceed quota
+    if (newTotalSize > MAX_STORAGE_SIZE) {
+      const usedMB = (currentTotalSize / (1024 * 1024)).toFixed(2);
+      const maxMB = (MAX_STORAGE_SIZE / (1024 * 1024)).toFixed(0);
+      const fileMB = (file.size / (1024 * 1024)).toFixed(2);
+      const availableMB = ((MAX_STORAGE_SIZE - currentTotalSize) / (1024 * 1024)).toFixed(2);
+
+      return res.status(413).json({
+        success: false,
+        message: `Storage quota exceeded. You have used ${usedMB}MB of ${maxMB}MB. This profile picture (${fileMB}MB) would exceed your limit.`,
+        error: 'STORAGE_QUOTA_EXCEEDED',
+        data: {
+          currentSize: currentTotalSize,
+          maxSize: MAX_STORAGE_SIZE,
+          fileSize: file.size,
+          availableSpace: MAX_STORAGE_SIZE - currentTotalSize,
+          usedMB: parseFloat(usedMB),
+          maxMB: parseFloat(maxMB),
+          fileMB: parseFloat(fileMB),
+          availableMB: parseFloat(availableMB),
+          message: `Please delete some old documents to free up space. You have ${availableMB}MB available.`
+        }
+      });
+    }
+
     // Generate unique filename
     const timestamp = Date.now();
     const fileExtension = file.originalname.split('.').pop() || 'jpg';
@@ -576,15 +634,28 @@ router.post('/update-profile-picture', authenticateToken, profilePictureUpload.s
       expires: Date.now() + 365 * 24 * 60 * 60 * 1000, // 1 year
     });
 
-    // Update user profile picture in Firestore
-    const db = admin.firestore();
-    const userRef = db.collection('users').doc(userId);
-
+    // Update user profile picture and totalSize in Firestore
     await userRef.update({
       profilePicture: downloadURL,
       profilePicturePath: fileName,
+      totalSize: newTotalSize, // Update totalSize (old profile picture removed, new one added)
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
+
+    // Delete old profile picture from storage if it exists
+    if (userData && userData.profilePicturePath && oldProfilePictureSize > 0) {
+      try {
+        const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+        const bucket = bucketName 
+          ? admin.storage().bucket(bucketName)
+          : admin.storage().bucket();
+        const oldFile = bucket.file(userData.profilePicturePath);
+        await oldFile.delete();
+      } catch (error) {
+        // If deletion fails, log but don't fail the request
+        console.log('Could not delete old profile picture:', error);
+      }
+    }
 
     return res.status(200).json({
       success: true,

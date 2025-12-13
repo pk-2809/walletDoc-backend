@@ -5,11 +5,14 @@ import { authenticateToken, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
+// Maximum storage quota per user (50MB)
+const MAX_STORAGE_SIZE = 50 * 1024 * 1024; // 50MB in bytes
+
 // Configure multer for file uploads (store in memory)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: 10 * 1024 * 1024, // 10MB limit per file
   },
   fileFilter: (_req, file, cb) => {
     // Allow common document types
@@ -52,6 +55,40 @@ router.post('/upload', authenticateToken, upload.single('document'), async (req:
     const userId = req.user.uid;
     const file = req.file;
     const { description } = req.body;
+
+    // Check storage quota before upload
+    const db = admin.firestore();
+    const userRef = db.collection('users').doc(userId);
+    const userDoc = await userRef.get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+    const currentTotalSize = (userData && userData.totalSize) ? userData.totalSize : 0;
+    const newTotalSize = currentTotalSize + file.size;
+
+    // Check if upload would exceed quota
+    if (newTotalSize > MAX_STORAGE_SIZE) {
+      const usedMB = (currentTotalSize / (1024 * 1024)).toFixed(2);
+      const maxMB = (MAX_STORAGE_SIZE / (1024 * 1024)).toFixed(0);
+      const fileMB = (file.size / (1024 * 1024)).toFixed(2);
+      const availableMB = ((MAX_STORAGE_SIZE - currentTotalSize) / (1024 * 1024)).toFixed(2);
+
+      return res.status(413).json({
+        success: false,
+        message: `Storage quota exceeded. You have used ${usedMB}MB of ${maxMB}MB. This file (${fileMB}MB) would exceed your limit.`,
+        error: 'STORAGE_QUOTA_EXCEEDED',
+        data: {
+          currentSize: currentTotalSize,
+          maxSize: MAX_STORAGE_SIZE,
+          fileSize: file.size,
+          availableSpace: MAX_STORAGE_SIZE - currentTotalSize,
+          usedMB: parseFloat(usedMB),
+          maxMB: parseFloat(maxMB),
+          fileMB: parseFloat(fileMB),
+          availableMB: parseFloat(availableMB),
+          message: `Please delete some old documents to free up space. You have ${availableMB}MB available.`
+        }
+      });
+    }
+
     // Generate unique filename
     const timestamp = Date.now();
     const fileName = `${userId}/${timestamp}_${file.originalname}`;
@@ -105,7 +142,6 @@ router.post('/upload', authenticateToken, upload.single('document'), async (req:
     };
 
     // Save document metadata to Firestore
-    const db = admin.firestore();
     const docRef = await db.collection('documents').add(documentData);
 
     // Prepare document details for user's documents array
@@ -119,12 +155,7 @@ router.post('/upload', authenticateToken, upload.single('document'), async (req:
       isDocShow: true
     };
 
-    // Update user's document list and totalSize
-    const userRef = db.collection('users').doc(userId);
-    const userDoc = await userRef.get();
-    const userData = userDoc.exists ? userDoc.data() : {};
-    const currentTotalSize = (userData && userData.totalSize) ? userData.totalSize : 0;
-    const newTotalSize = currentTotalSize + file.size;
+    // Update user's document list and totalSize (already calculated above)
 
     // Update documents array and totalSize first
     await userRef.update({
