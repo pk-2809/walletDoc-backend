@@ -383,14 +383,31 @@ router.get('/me', async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader) {
       return res.status(401).json({
         success: false,
         message: 'Authorization token required'
       });
     }
 
-    const idToken = authHeader.split('Bearer ')[1];
+    // Handle different Bearer token formats
+    const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (!bearerMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid authorization format. Expected: Bearer <token>'
+      });
+    }
+
+    const idToken = bearerMatch[1].trim();
+
+    // Validate token format (JWT should have 3 parts separated by dots)
+    if (!idToken || idToken.split('.').length !== 3) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token format. Token must be a valid JWT.'
+      });
+    }
     
     // Verify the ID token
     const decodedToken = await admin.auth().verifyIdToken(idToken);

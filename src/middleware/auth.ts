@@ -22,7 +22,7 @@ export const authenticateToken = async (
   try {
     const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader) {
       res.status(401).json({
         success: false,
         error: 'Authorization token required. Please provide a Bearer token.'
@@ -30,7 +30,26 @@ export const authenticateToken = async (
       return;
     }
 
-    const idToken = authHeader.split('Bearer ')[1];
+    // Handle different Bearer token formats (Bearer token, Bearer  token, etc.)
+    const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (!bearerMatch) {
+      res.status(401).json({
+        success: false,
+        error: 'Invalid authorization format. Expected: Bearer <token>'
+      });
+      return;
+    }
+
+    const idToken = bearerMatch[1].trim();
+
+    // Validate token format (JWT should have 3 parts separated by dots)
+    if (!idToken || idToken.split('.').length !== 3) {
+      res.status(401).json({
+        success: false,
+        error: 'Invalid token format. Token must be a valid JWT.'
+      });
+      return;
+    }
 
     // Verify the ID token
     const decodedToken = await admin.auth().verifyIdToken(idToken);
@@ -101,14 +120,20 @@ export const optionalAuth = async (
   try {
     const authHeader = req.headers.authorization;
 
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const idToken = authHeader.split('Bearer ')[1];
-      const decodedToken = await admin.auth().verifyIdToken(idToken);
-      req.user = {
-        ...decodedToken,
-        uid: decodedToken.uid,
-        email: decodedToken.email || undefined
-      };
+    if (authHeader) {
+      const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+      if (bearerMatch) {
+        const idToken = bearerMatch[1].trim();
+        // Only verify if token looks valid (JWT has 3 parts)
+        if (idToken && idToken.split('.').length === 3) {
+          const decodedToken = await admin.auth().verifyIdToken(idToken);
+          req.user = {
+            ...decodedToken,
+            uid: decodedToken.uid,
+            email: decodedToken.email || undefined
+          };
+        }
+      }
     }
   } catch (error) {
     // Silently fail - user is not authenticated but route is still accessible
