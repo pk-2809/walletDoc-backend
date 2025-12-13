@@ -562,7 +562,8 @@ router.post('/update-profile-picture', authenticateToken, profilePictureUpload.s
         const [exists] = await oldFile.exists();
         if (exists) {
           const [metadata] = await oldFile.getMetadata();
-          oldProfilePictureSize = parseInt(String(metadata.size || '0'), 10);
+          const size = metadata.size || metadata.metadata?.size || '0';
+          oldProfilePictureSize = typeof size === 'string' ? parseInt(size, 10) : (typeof size === 'number' ? size : 0);
         }
       } catch (error) {
         // If old file doesn't exist or can't be accessed, ignore
