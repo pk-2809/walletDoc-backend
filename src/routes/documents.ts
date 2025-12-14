@@ -237,7 +237,18 @@ router.post('/my-documents', async (req: Request, res: Response) => {
     }
 
     // Generate fresh signed URLs for each document
-    const bucket = admin.storage().bucket();
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+    const bucket = bucketName 
+      ? admin.storage().bucket(bucketName)
+      : admin.storage().bucket();
+    
+    if (!bucket) {
+      return res.status(500).json({
+        success: false,
+        message: 'Firebase Storage bucket not configured'
+      });
+    }
+    
     const documents = await Promise.all(
       documentsSnapshot.docs.map(async (doc: any) => {
         const docData = doc.data();
@@ -314,12 +325,17 @@ router.get('/:documentId', async (req: Request, res: Response) => {
         const bucket = bucketName 
           ? admin.storage().bucket(bucketName)
           : admin.storage().bucket();
-        const file = bucket.file(docData.storagePath);
-        const [signedUrl] = await file.getSignedUrl({
-          action: 'read',
-          expires: Date.now() + 365 * 24 * 60 * 60 * 1000, // 1 year
-        });
-        downloadURL = signedUrl;
+        
+        if (!bucket) {
+          console.error('Firebase Storage bucket not configured');
+        } else {
+          const file = bucket.file(docData.storagePath);
+          const [signedUrl] = await file.getSignedUrl({
+            action: 'read',
+            expires: Date.now() + 365 * 24 * 60 * 60 * 1000, // 1 year
+          });
+          downloadURL = signedUrl;
+        }
       } catch (error) {
         console.error('Error generating signed URL:', error);
         // Keep original URL if signed URL generation fails
@@ -564,7 +580,18 @@ router.post('/get-documents-by-pin', async (req: Request, res: Response) => {
     });
 
     // Generate fresh signed URLs for each document
-    const bucket = admin.storage().bucket();
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+    const bucket = bucketName 
+      ? admin.storage().bucket(bucketName)
+      : admin.storage().bucket();
+    
+    if (!bucket) {
+      return res.status(500).json({
+        success: false,
+        message: 'Firebase Storage bucket not configured'
+      });
+    }
+    
     const documentsWithUrls = await Promise.all(
       visibleDocuments.map(async (doc: any) => {
         let downloadURL = doc.downloadURL;
