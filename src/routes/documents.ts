@@ -280,20 +280,12 @@ router.post('/my-documents', async (req: Request, res: Response) => {
   }
 });
 
-// Get single document by ID (authenticated API)
+// Get single document by ID (open API - no authentication required)
 // IMPORTANT: This route must come after specific routes like /my-documents and /get-documents-by-pin
 // but before other /:documentId routes like /:documentId/download-url
-router.get('/:documentId', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.get('/:documentId', async (req: Request, res: Response) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'User not authenticated'
-      });
-    }
-
     const { documentId } = req.params;
-    const userId = req.user.uid;
     const db = admin.firestore();
 
     const docSnapshot = await db.collection('documents').doc(documentId).get();
@@ -311,14 +303,6 @@ router.get('/:documentId', authenticateToken, async (req: AuthRequest, res: Resp
       return res.status(404).json({
         success: false,
         message: 'Document data not found'
-      });
-    }
-
-    // Check if document belongs to the authenticated user
-    if (docData.userId !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have permission to access this document'
       });
     }
 
@@ -393,7 +377,18 @@ router.delete('/:documentId', authenticateToken, async (req: AuthRequest, res: R
     }
 
     // Delete file from Firebase Storage
-    const bucket = admin.storage().bucket();
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+    const bucket = bucketName 
+      ? admin.storage().bucket(bucketName)
+      : admin.storage().bucket();
+    
+    if (!bucket) {
+      return res.status(500).json({
+        success: false,
+        message: 'Firebase Storage bucket not configured'
+      });
+    }
+    
     const file = bucket.file(docData?.storagePath);
     
     try {
