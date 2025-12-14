@@ -280,12 +280,20 @@ router.post('/my-documents', async (req: Request, res: Response) => {
   }
 });
 
-// Get single document by ID (open API - no authentication required)
+// Get single document by ID (authenticated API)
 // IMPORTANT: This route must come after specific routes like /my-documents and /get-documents-by-pin
 // but before other /:documentId routes like /:documentId/download-url
-router.get('/:documentId', async (req: Request, res: Response) => {
+router.get('/:documentId', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+
     const { documentId } = req.params;
+    const userId = req.user.uid;
     const db = admin.firestore();
 
     const docSnapshot = await db.collection('documents').doc(documentId).get();
@@ -303,6 +311,14 @@ router.get('/:documentId', async (req: Request, res: Response) => {
       return res.status(404).json({
         success: false,
         message: 'Document data not found'
+      });
+    }
+
+    // Check if document belongs to the authenticated user
+    if (docData.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to access this document'
       });
     }
 
