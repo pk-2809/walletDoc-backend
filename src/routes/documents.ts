@@ -281,6 +281,8 @@ router.post('/my-documents', async (req: Request, res: Response) => {
 });
 
 // Get single document by ID (open API - no authentication required)
+// IMPORTANT: This route must come after specific routes like /my-documents and /get-documents-by-pin
+// but before other /:documentId routes like /:documentId/download-url
 router.get('/:documentId', async (req: Request, res: Response) => {
   try {
     const { documentId } = req.params;
@@ -308,7 +310,10 @@ router.get('/:documentId', async (req: Request, res: Response) => {
     let downloadURL = docData.downloadURL;
     if (docData.storagePath) {
       try {
-        const bucket = admin.storage().bucket();
+        const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+        const bucket = bucketName 
+          ? admin.storage().bucket(bucketName)
+          : admin.storage().bucket();
         const file = bucket.file(docData.storagePath);
         const [signedUrl] = await file.getSignedUrl({
           action: 'read',
@@ -428,7 +433,7 @@ router.delete('/:documentId', authenticateToken, async (req: AuthRequest, res: R
   }
 });
 
-// Get signed URL for a document
+// Get signed URL for a document (authenticated - must come after /:documentId route)
 router.get('/:documentId/download-url', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) {
